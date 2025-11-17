@@ -4,14 +4,12 @@ import base64
 import random
 import re
 import json
-import requests # Required for making external API calls
-import os # Import os for environment variable check
+import requests
+import os
+from io import BytesIO
 
 # --- Global Configuration ---
-# API Key handling:
-# 1. First, check the execution environment variable (used for live deployment/Streamlit Secrets).
-# 2. Fallback to the hardcoded empty string (used for the Canvas environment if not provided).
-# The key name for Streamlit Secrets is typically defined by the user; we will standardize on GEMINI_API_KEY
+# API Key handling: Reads from Streamlit Secrets (GEMINI_API_KEY) or environment.
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 # Using the standard gemini-2.5-flash-preview-09-2025 model for text and vision
@@ -21,31 +19,25 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini
 
 def get_base64_image(file_buffer):
     """Converts uploaded file buffer to base64 string for display and API use."""
-    # Read the full content of the file buffer
     bytes_data = file_buffer.read()
-    # Reset buffer position after reading to allow Streamlit to re-read later
     file_buffer.seek(0)
-    # Encode the bytes data to base64 string
     base64_encoded = base64.b64encode(bytes_data).decode()
     return base64_encoded, file_buffer.type
 
 def call_gemini_api_with_retry(payload, max_retries=3):
     """Handles API call with exponential backoff for robustness."""
-    # Check if API key is available before attempting the call
     if not API_KEY:
          return "Error: API Key is missing. Please ensure GEMINI_API_KEY is set in Streamlit Secrets."
          
     for attempt in range(max_retries):
         try:
             headers = {'Content-Type': 'application/json'}
-            # Make the API request, using the global API_KEY
             response = requests.post(f"{GEMINI_API_URL}?key={API_KEY}", headers=headers, data=json.dumps(payload))
             response.raise_for_status() # Raises an HTTPError for bad responses (4xx or 5xx)
             
             result = response.json()
             candidate = result.get('candidates', [{}])[0]
             
-            # Extract the text content from the response
             if candidate and candidate.get('content', {}).get('parts', [{}])[0].get('text'):
                 return candidate['content']['parts'][0]['text']
             else:
@@ -53,110 +45,61 @@ def call_gemini_api_with_retry(payload, max_retries=3):
 
         except requests.exceptions.RequestException as e:
             if attempt < max_retries - 1:
-                # Exponential backoff
                 sleep_time = 2 ** attempt
-                # Do not log retry as an error in console
                 time.sleep(sleep_time)
             else:
-                # Log the final error attempt
-                return f"Error: Failed to connect to LLM after {max_retries} attempts. {e}"
+                return f"Error: Failed to connect to LLM after {max_retries} attempts. (Details: {e}). Did you set the API Key secret?"
         except Exception as e:
             return f"Error: An unexpected error occurred during API processing: {e}"
     return "Error: Unknown failure during API interaction."
 
 
-# --- Core LLM Generation Functions (95% Accuracy Feature) ---
+# --- Core LLM Generation Functions (Roadmap) ---
 
 def call_gemini_api_for_roadmap(topic, level, duration_amount, duration_type, file_parts):
-    """Generates the main structured roadmap content, incorporating image context and grounding."""
+    """Generates the main structured roadmap content for the full duration."""
     
-    # 1. Define the System Persona and Rules
+    # 1. New System Persona: More human, friendly, and focused on structure
     system_prompt = (
-        "Act as a world-class AI tutor and study planner (Mārga). "
-        "Your goal is to generate a personalized, accurate study roadmap in MARKDOWN format. "
-        "The plan must be highly detailed and optimized for the user's level and duration. "
-        "Base your suggestions on the provided topic, level, duration, and the context from the user's notes/images."
-        "The output must focus on practical application and must be structured with clear phases. "
-        "Your generated roadmap must achieve at least 95% accuracy in content."
+        "Act as Mārga, a highly engaging and personalized AI tutor. You talk like a friendly human mentor—use contractions, encouraging language, and an informal but knowledgeable tone. "
+        "Your primary job is to generate a comprehensive, structured study roadmap in MARKDOWN for the full time period requested. "
+        "The plan MUST be broken down into 'Day X' or 'Week X' steps, covering the entire duration: "
+        f"{duration_amount} {duration_type}. "
+        "The output must focus on practical application and MUST be structured using Markdown headings (## Day X or ## Week X). "
+        "The content accuracy must be 95%+ using search grounding."
     )
     
     # 2. Define the User Query
     user_query = (
-        f"Generate a personalized {level} study roadmap for the topic: '{topic}' "
-        f"to be completed over {duration_amount} {duration_type}. "
-        "If images are provided, tailor the roadmap to focus on the key concepts visible in the notes."
+        f"Generate a personalized {level} study roadmap for the topic: '{topic}'. "
+        f"The plan must span the entire period of {duration_amount} {duration_type}. "
+        "Structure the output clearly by day or week. If images are provided, tailor the roadmap to focus on the key concepts visible in the notes."
     )
     
     # 3. Construct the Full Payload
     payload = {
-        # Combine image parts (if any) and the text query
         "contents": [{ "parts": file_parts + [{ "text": user_query }] }],
         "systemInstruction": { "parts": [{ "text": system_prompt }] },
-        # Use Google Search grounding for 95% up-to-date accuracy
         "tools": [{ "google_search": {} }]
     }
     
     return call_gemini_api_with_retry(payload)
 
-
-def call_gemini_api_for_visual_guide(topic):
-    """Generates the content for the quick revision study guide."""
+def generate_roadmap_content(topic, level, duration_amount, duration_type, uploaded_files):
     
-    system_prompt = (
-        "You are a subject matter expert. Generate a concise, simple, visual study guide "
-        "on the single core concept of the user's requested topic. "
-        "The output must be in MARKDOWN, follow the structure of a quick-reference card (Definition, Properties, Application), "
-        "and be easily readable for quick revisions. Do not include a title section or intro/outro text. "
-        "Focus on 3-4 bullet points per section."
-    )
-    
-    user_query = f"Generate a quick visual study guide on the core concept of: {topic}."
-    
-    payload = {
-        "contents": [{ "parts": [{ "text": user_query }] }],
-        "systemInstruction": { "parts": [{ "text": system_prompt }] },
-        "tools": [{ "google_search": {} }]
-    }
-    
-    return call_gemini_api_with_retry(payload)
-
-
-# --- Supporting UI and Logic Functions ---
-
-def clean_and_check_topic(topic):
-    """Checks for common typos (like 'baisce') and suggests corrections in a friendly way.)"""
-    original_topic = topic
-    corrected_topic = topic
-
-    if re.search(r'baisce|basice|basc', topic.lower()):
-        # Simple string replacement for common typos related to 'basics'
-        corrected_topic = re.sub(r'baisce|basice|basc', 'basics', topic.lower())
-        
-    if original_topic.lower() != corrected_topic.lower():
-        st.info(f"Hey! Mārga noticed you might mean **'{corrected_topic.title()}'**. We'll craft the path using that version, cool?")
-    
-    return corrected_topic.title()
-
-def generate_roadmap(topic, level, duration_amount, duration_type, uploaded_files):
-    
-    topic = clean_and_check_topic(topic)
+    st.session_state.topic = topic # Save topic for assignment feature
     
     # Prepare files for the LLM call
     file_parts = []
     visual_context_html = ""
     
     if uploaded_files:
-        visual_context_html += "### 🖼️ Your Notes: Context is King\n"
+        visual_context_html += "### 🖼️ Your Contextual Notes\n"
         visual_context_html += '<div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px;">'
         
-        # Iterate over files to prepare them for both display and API submission
         for i, file_buffer in enumerate(uploaded_files):
             try:
-                # Use the utility function to get base64 data and mime type
-                # Note: get_base64_image resets the buffer position for Streamlit
                 base64_data, mime_type = get_base64_image(file_buffer)
-                
-                # Add file to the LLM parts list (for context/vision)
                 file_parts.append({
                     "inlineData": {
                         "mimeType": mime_type,
@@ -164,7 +107,6 @@ def generate_roadmap(topic, level, duration_amount, duration_type, uploaded_file
                     }
                 })
 
-                # Prepare HTML for display in Streamlit
                 visual_context_html += f"""
                     <div style="width: 150px; text-align: center; border: 1px solid #ddd; padding: 5px; border-radius: 8px;">
                         <img src="data:{mime_type};base64,{base64_data}" style="width: 100%; height: auto; border-radius: 4px; object-fit: cover;">
@@ -175,10 +117,9 @@ def generate_roadmap(topic, level, duration_amount, duration_type, uploaded_file
                 st.warning(f"Could not process uploaded file {file_buffer.name}. Error: {e}")
                 
         visual_context_html += "</div>"
-
-    # --- LLM Calls for Content Generation ---
-    with st.spinner(f"Mārga is generating your **95%+ Accurate** roadmap and study guide... this takes a moment!"):
-        # 1. Generate the Main Roadmap (High-Accuracy, personalized, using files for context)
+    
+    
+    with st.spinner(f"Mārga is crafting your detailed {duration_amount} {duration_type} roadmap... this might take 10-20 seconds!"):
         roadmap_markdown = call_gemini_api_for_roadmap(
             topic, 
             level, 
@@ -186,103 +127,281 @@ def generate_roadmap(topic, level, duration_amount, duration_type, uploaded_file
             duration_type, 
             file_parts
         )
-        
-        # 2. Generate the Visual Study Guide Content (Independent, quick-ref content)
-        visual_guide_markdown = call_gemini_api_for_visual_guide(topic)
+        # Store the raw markdown for download
+        st.session_state.current_roadmap_text = roadmap_markdown
 
-
-    # --- Output Assembly ---
-    
     # Conversational Insight
     insights = [
-        "Hey buddy, remember: True mastery is in understanding *why* things work, not just memorizing the steps.",
-        "Your brain learns best when you're slightly challenged. If it feels too easy, level up the difficulty!",
-        "Take a 5-minute break every hour. Your focus will thank you.",
-        "To really own a concept, try teaching it to a rubber duck (or a friend!).",
+        "You've got this! Remember: True mastery comes from consistent effort, not last-minute cramming.",
+        "Your brain needs breaks! Try the Pomodoro technique—25 minutes focus, 5 minutes rest.",
+        "To really own a concept, try teaching it to someone else (or even just your reflection!).",
+        "Don't worry about perfection, just focus on making a little progress every day.",
     ]
     insight_text = random.choice(insights)
-
-    # Combine all generated parts into the final display output
-    output = f"""
+    
+    # Assemble the content display with advanced styling
+    st.markdown(f"""
         <style>
             .stMarkdown h2 {{ color: #4f46e5; border-bottom: 3px solid #4f46e5; padding-bottom: 8px; margin-top: 20px; }}
             .stMarkdown h3 {{ color: #10b981; }}
+            /* Advanced Card Styling for the Roadmap */
+            .roadmap-card {{ 
+                background: linear-gradient(145deg, #f9f9f9, #ffffff);
+                border: 1px solid #e0e0e0; 
+                border-radius: 16px; 
+                padding: 30px; 
+                box-shadow: 0 10px 20px rgba(0,0,0,0.1); 
+                margin-top: 15px; 
+            }}
+            .insight-box {{ 
+                background-color: #f0f0ff; 
+                padding: 15px; 
+                border-radius: 10px; 
+                border-left: 5px solid #6c5ce7; 
+                margin-bottom: 20px; 
+                box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            }}
+            /* Style for the day/week steps inside the roadmap */
+            .roadmap-card h2 {{
+                color: #e94e77; /* A contrasting color for steps */
+                border-bottom: 2px dashed #e94e7750;
+                padding-bottom: 5px;
+            }}
         </style>
         
         <h2>🗺️ Your Personalized Mārga (Roadmap)</h2>
         
         <p style="font-size: 1.1em; font-weight: 500;">
-            <b>Topic:</b> {topic} | <b>Level:</b> {level} | <b>Goal:</b> <span style="color: #FF4B4B;">{duration_amount} {duration_type}</span>
+            <b>Topic:</b> {topic} | <b>Level:</b> {level} | <b>Goal Duration:</b> <span style="color: #FF4B4B;">{duration_amount} {duration_type}</span>
         </p>
         
         <hr>
         
         {visual_context_html}
         
-        <div style="background-color: #f0f0ff; padding: 15px; border-radius: 10px; border-left: 5px solid #6c5ce7; margin-bottom: 20px;">
-            <h4 style="margin-top: 0; color: #6c5ce7;">💡 Mecrobet Insight</h4>
+        <div class="insight-box">
+            <h4 style="margin-top: 0; color: #6c5ce7;">💡 Mārga's Insight for You</h4>
             <p>{insight_text}</p>
         </div>
         
-        <h3>🧪 AI-Generated Study Plan (Confidence: 95%+ Accuracy)</h3>
-        
-        {roadmap_markdown}
+        <h3>📝 The Full Study Plan (Confidence: 95%+ Accuracy)</h3>
+        <div class="roadmap-card">
+        """, unsafe_allow_html=True)
 
+    # Display the LLM-generated content
+    st.markdown(roadmap_markdown)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # --- Download Button for Roadmap ---
+    roadmap_filename = f"Marga_Roadmap_{topic.replace(' ', '_')}_{duration_amount}{duration_type}.md"
+    download_content = f"# Mecrobet Mārga Roadmap: {topic}\n\n**Level:** {level} | **Duration:** {duration_amount} {duration_type}\n\n---\n\n{roadmap_markdown}"
+    st.download_button(
+        label="⬇️ Download Roadmap (Markdown File)",
+        data=download_content.encode('utf-8'),
+        file_name=roadmap_filename,
+        mime="text/markdown",
+        key="download_roadmap"
+    )
+
+    st.markdown(f"""
         <hr>
-        
-        <h2>📘 Quick Revision Study Guide (Always Ready!)</h2>
-        
-        <p>*Mārga generated this simplified guide for quick review of the core concept of {topic}.*</p>
-        
-        {visual_guide_markdown}
+        <p style="font-weight: bold; font-size: 1.1em;">
+            🎉 Awesome! Now head over to the **'Assignment Hub'** tab to generate your first checkpoint assignment!
+        </p>
+    """, unsafe_allow_html=True)
 
-        <hr>
-        
-        <p style="font-weight: bold; font-size: 1.1em;">✅ Let's do this! Use the roadmap to guide your deep study and the guide above for quick-fire revisions!</p>
-        """
-    return output
 
-# --- Streamlit Application Layout ---
-st.set_page_config(page_title="Mecrobet Mārga (LLM Integrated)", layout="wide")
+# --- Core LLM Generation Functions (Assignment Hub) ---
+
+def call_gemini_api_for_assignment(topic):
+    """Generates an assignment based on the current topic."""
+    
+    system_prompt = (
+        "You are Mārga, the friendly AI tutor. Your task is to generate a comprehensive, multi-part, and challenging assignment "
+        "that tests the user's understanding of the provided topic. "
+        "The assignment MUST include a mix of question types: 1-2 definition/theory questions and 1 practical/scenario-based problem. "
+        "Do NOT include the answer key. Keep the tone friendly and encouraging."
+        "Structure the output in clean Markdown under a single '## Assignment: [Topic]' heading."
+    )
+    
+    user_query = f"Generate a checkpoint assignment for the topic: {topic}."
+    
+    payload = {
+        "contents": [{ "parts": [{ "text": user_query }] }],
+        "systemInstruction": { "parts": [{ "text": system_prompt }] },
+        "tools": [{ "google_search": {} }]
+    }
+    
+    return call_gemini_api_with_retry(payload)
+
+def call_gemini_api_for_grading(topic, submitted_notes_parts):
+    """Grades the user's uploaded assignment solution."""
+    
+    system_prompt = (
+        "You are Mārga, the expert AI grader. Your tone is supportive, encouraging, and highly analytical. "
+        "Your task is to analyze the user's uploaded image/notes, which contain their solution to an assignment on the topic. "
+        "Provide a structured, three-part response in MARKDOWN:"
+        "1. **Overall Feedback:** A human-like assessment of their effort and understanding."
+        "2. **Key Points Correct (Answer Key):** List the main concepts they got right or should have included."
+        "3. **Areas for Improvement (Mistake Pointer):** Detail 1-2 specific, actionable mistakes or gaps in their knowledge demonstrated in the image."
+        "Do not use numerical grades, focus on qualitative feedback."
+    )
+    
+    user_query = f"The user has submitted their handwritten solution (in the attached image/notes) for an assignment on '{topic}'. Please analyze the image and provide comprehensive feedback based on the three-part structure defined in your system instruction."
+    
+    # Combine image parts (the submission) and the text query
+    payload = {
+        "contents": [{ "parts": submitted_notes_parts + [{ "text": user_query }] }],
+        "systemInstruction": { "parts": [{ "text": system_prompt }] },
+        "tools": [{ "google_search": {} }]
+    }
+    
+    return call_gemini_api_with_retry(payload)
+
+# --- Streamlit Page Functions ---
+
+def roadmap_generator_page():
+    """Defines the layout and logic for the Roadmap Generation Tab."""
+    
+    st.subheader("Craft Your Learning Path with Mārga 🧭")
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        topic = st.text_input("📚 1. What subject or concept are you mastering?", 
+                              st.session_state.get('topic', 'Data Science Basics')) 
+        level = st.select_slider("🎯 3. Your Current Level:", 
+                                 options=['Beginner', 'Intermediate', 'Advanced'], 
+                                 value='Intermediate')
+        
+    with col2:
+        st.markdown("⏳ **2. Goal Duration**")
+        duration_amount = st.number_input("Amount", min_value=1, value=5, key="duration_amount")
+        duration_type = st.selectbox("Type", ["Days", "Weeks", "Months"], key="duration_type")
+        
+        if duration_amount == 1 and duration_type in ["Days", "Weeks", "Months"]:
+             st.warning("For a multi-day plan, consider 3+ Days or 1+ Week.")
+
+    st.markdown("---")
+    uploaded_files = st.file_uploader(
+        "Upload your current notes or images for contextual learning (Optional):", 
+        type=['png', 'jpg', 'jpeg'], 
+        accept_multiple_files=True
+    )
+    st.caption("Mārga uses these visuals to tailor the plan specifically to your existing knowledge.")
+    st.markdown("---")
+
+    if st.button("Generate My Mārga (Roadmap)", type="primary", use_container_width=True):
+        if topic:
+            generate_roadmap_content(topic, level, duration_amount, duration_type, uploaded_files)
+        else:
+            st.error("Hold up! Please enter a subject to start your path!")
+
+
+def assignment_hub_page():
+    """Defines the layout and logic for the Assignment and Grading Tab."""
+    
+    current_topic = st.session_state.get('topic', 'No Topic Set (e.g., Data Science Basics)')
+    
+    st.markdown(f"""
+        <h2 style="color: #4f46e5;">📝 Assignment Hub: Checkpoint for {current_topic}</h2>
+        <p>Mārga suggests a check-in assignment roughly every 5 days of study to lock in what you've learned. </p>
+    """, unsafe_allow_html=True)
+    
+    # --- Generate Assignment Section ---
+    st.markdown("### 1. Generate Your Assignment")
+    
+    if st.button(f"Generate Checkpoint Assignment for '{current_topic}'", type="secondary"):
+        with st.spinner("Mārga is designing your custom challenge..."):
+            assignment_text = call_gemini_api_for_assignment(current_topic)
+            st.session_state.last_assignment = assignment_text # Store for display
+            
+    if 'last_assignment' in st.session_state:
+        st.markdown(st.session_state.last_assignment)
+    
+    st.markdown("---")
+    
+    # --- Submit and Grade Section ---
+    st.markdown("### 2. Submit Your Solution & Get Feedback")
+    
+    submission_file = st.file_uploader(
+        "Upload your handwritten or typed assignment solution (as a PNG/JPG image):", 
+        type=['png', 'jpg', 'jpeg'], 
+        accept_multiple_files=False,
+        key="submission_file"
+    )
+    
+    if st.button("Get My Grade & Feedback", type="primary") and submission_file:
+        
+        submitted_notes_parts = []
+        try:
+            base64_data, mime_type = get_base64_image(submission_file)
+            submitted_notes_parts.append({
+                "inlineData": {
+                    "mimeType": mime_type,
+                    "data": base64_data
+                }
+            })
+        except Exception as e:
+            st.error(f"Could not process submission file. Error: {e}")
+            return
+            
+        with st.spinner("Mārga is analyzing your submission and pointing out those key learning areas..."):
+            feedback_markdown = call_gemini_api_for_grading(current_topic, submitted_notes_parts)
+            st.session_state.last_feedback = feedback_markdown
+
+        # Display Feedback
+        st.markdown("### 🌟 Mārga's Personalized Feedback 🌟")
+        st.markdown(feedback_markdown)
+        st.success("Great work! Use the 'Areas for Improvement' to refine your study plan.")
+        
+        # --- Download Button for Feedback ---
+        feedback_filename = f"Marga_Feedback_{current_topic.replace(' ', '_')}.md"
+        download_content = f"# Mecrobet Mārga Assignment Feedback: {current_topic}\n\n---\n\n{feedback_markdown}"
+        st.download_button(
+            label="⬇️ Download Feedback (Markdown File)",
+            data=download_content.encode('utf-8'),
+            file_name=feedback_filename,
+            mime="text/markdown",
+            key="download_feedback"
+        )
+        
+    elif 'last_feedback' in st.session_state:
+        st.markdown("### 🌟 Mārga's Personalized Feedback 🌟")
+        st.markdown(st.session_state.last_feedback)
+         # --- Download Button for Feedback (Re-display) ---
+        feedback_filename = f"Marga_Feedback_{current_topic.replace(' ', '_')}.md"
+        download_content = f"# Mecrobet Mārga Assignment Feedback: {current_topic}\n\n---\n\n{st.session_state.last_feedback}"
+        st.download_button(
+            label="⬇️ Download Feedback (Markdown File)",
+            data=download_content.encode('utf-8'),
+            file_name=feedback_filename,
+            mime="text/markdown",
+            key="download_feedback_re"
+        )
+        
+    elif st.button("Get My Grade & Feedback", type="primary"):
+         st.warning("Please upload your solution file first!")
+
+# --- Main App Execution ---
+
+if 'topic' not in st.session_state:
+    st.session_state['topic'] = 'Data Science Basics'
+
+st.set_page_config(page_title="Mecrobet Mārga: Personalized Learning", layout="wide")
 
 st.title("Mecrobet Mārga: Your Personalized Learning Path 🗺️")
-st.subheader("Your AI buddy for custom roadmaps, tips, and study plans.")
+st.subheader("Your friendly AI mentor for structured study, human-like feedback, and 95%+ content accuracy.")
 
-# --- INPUT COLUMNS (Layout for Topic and Duration) ---
-col1, col2 = st.columns([2, 1])
+# Create the tab navigation
+tab_roadmap, tab_assignments = st.tabs(["🗺️ Roadmap Generator", "📝 Assignment Hub"])
 
-with col1:
-    topic = st.text_input("📚 What subject do you want to master?", "blockchain basics") 
-    level = st.select_slider("🎯 Your Current Level:", options=['Beginner', 'Intermediate', 'Advanced'], value='Intermediate')
-    
-with col2:
-    st.markdown("⏳ **Goal Duration**")
-    duration_amount = st.number_input("Amount", min_value=1, value=5, key="duration_amount")
-    duration_type = st.selectbox("Type", ["Minutes", "Hours", "Days", "Weeks", "Months"], key="duration_type")
+with tab_roadmap:
+    roadmap_generator_page()
 
-# --- Image Uploader ---
-st.markdown("---")
-uploaded_files = st.file_uploader(
-    "Upload your notes or images for context (Optional):", 
-    type=['png', 'jpg', 'jpeg'], 
-    accept_multiple_files=True
-)
-st.caption("Mārga uses these visuals to make your path smarter and more accurate. Your notes will be shown on the roadmap.")
-st.markdown("---")
-
-# The button that triggers the generation
-if st.button("Generate My Mārga (Roadmap)", type="primary"):
-    if topic:
-        # Pass all inputs to the generate function
-        st.markdown(generate_roadmap(
-            topic, 
-            level, 
-            duration_amount, 
-            duration_type, 
-            uploaded_files
-        ), unsafe_allow_html=True) 
-    else:
-        st.error("Hey! Please enter a subject to start your path!")
+with tab_assignments:
+    assignment_hub_page()
 
 st.markdown("---")
 st.caption("Powered by the Mecrobet Mārga Team. Final Streamlit Version.")
