@@ -15,6 +15,69 @@ API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # Using the standard gemini-2.5-flash-preview-09-2025 model for text and vision
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent"
 
+# --- Advanced Graphics CSS Injection ---
+CUSTOM_CSS_INTERACTIVE = """
+<style>
+    /* Global Styles & Fonts */
+    body { font-family: 'Inter', sans-serif; }
+    h1, h2, h3, h4 { color: #4f46e5; }
+    
+    /* Core Roadmap Card Styles */
+    .roadmap-step {
+        background: #ffffff;
+        border-radius: 12px;
+        margin-bottom: 25px;
+        overflow: hidden;
+        transition: all 0.3s ease-in-out;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    }
+    
+    /* Unlocked/Active Step Styling */
+    .unlocked-step {
+        border: 1px solid #e0e7ff; /* Lighter indigo border */
+        border-left: 6px solid #4f46e5; /* Primary color indicator */
+    }
+    .unlocked-step:hover {
+        box-shadow: 0 8px 20px rgba(79, 70, 229, 0.15);
+        transform: translateY(-2px);
+    }
+    
+    /* Locked Step Styling */
+    .locked-step {
+        background: #fcfcfc;
+        border: 1px dashed #d1d5db;
+        border-left: 6px solid #9ca3af; /* Gray lock indicator */
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    
+    .step-header {
+        padding: 15px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background-color: #f9f9ff; /* Very light purple tint */
+        border-bottom: 1px solid #eef;
+    }
+
+    .step-content {
+        padding: 20px;
+    }
+
+    /* Icons */
+    .lock-icon {
+        color: #9ca3af;
+        font-size: 28px;
+        margin-right: 15px;
+    }
+    .unlock-icon {
+        color: #10b981;
+        font-size: 28px;
+        margin-right: 15px;
+    }
+</style>
+"""
+
 # --- Utility Functions ---
 
 def get_base64_image(file_buffer):
@@ -55,6 +118,111 @@ def call_gemini_api_with_retry(payload, max_retries=3):
             return f"Error: An unexpected error occurred during API processing: {e}"
     return "Error: Unknown failure during API interaction."
 
+def parse_markdown_roadmap(markdown_text):
+    """Parses the LLM's Markdown output into a list of structured steps."""
+    
+    # Regex to split the text by '## Day X' or '## Week X' headings
+    steps = re.split(r'(## (Day|Week) \d+.*)', markdown_text, flags=re.IGNORECASE)
+    
+    parsed_steps = []
+    
+    # steps will look like: ['', '## Day 1 Title', 'Content 1', '## Day 2 Title', 'Content 2', ...]
+    
+    # Skip the first element and iterate over pairs (title, content)
+    for i in range(1, len(steps), 2):
+        if i + 1 < len(steps):
+            title = steps[i].strip()
+            content = steps[i+1].strip()
+            
+            clean_title = title.replace('## ', '', 1).strip()
+            
+            parsed_steps.append({
+                "title": clean_title,
+                "content_markdown": content.strip()
+            })
+            
+    return parsed_steps
+
+def generate_styled_html_download(topic, level, duration_amount, duration_type, roadmap_markdown, insight_text):
+    """Generates a complete, standalone HTML file with embedded CSS for download."""
+    
+    # Simple conversion of basic markdown to HTML for presentation
+    html_content = roadmap_markdown.replace('## ', '<h2>').replace('### ', '<h3>')
+    html_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html_content)
+    html_content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', html_content)
+    
+    # Replace markdown list items
+    html_content = html_content.replace('\n- ', '\n<li>')
+    # Simple list wrapper
+    if '<li>' in html_content:
+        html_content = '<ul>' + html_content.replace('<li>', '</li><li>') + '</ul>'
+        html_content = html_content.replace('<ul></li>', '<ul>') # fix leading empty li
+        html_content = html_content.replace('</ul>\n', '</ul>').replace('</ul>\n\n', '</ul>')
+
+    
+    # Custom CSS to mimic the app's look
+    custom_css = """
+        body { font-family: sans-serif; line-height: 1.6; margin: 20px; color: #333; }
+        h1 { color: #4f46e5; border-bottom: 5px solid #4f46e5; padding-bottom: 10px; }
+        h2 { color: #4f46e5; border-bottom: 3px solid #4f46e5; padding-bottom: 8px; margin-top: 25px; }
+        h3 { color: #10b981; margin-top: 20px; }
+        .roadmap-card { 
+            background: linear-gradient(145deg, #f9f9f9, #ffffff);
+            border: 1px solid #e0e0e0; 
+            border-radius: 16px; 
+            padding: 30px; 
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1); 
+            margin-top: 15px; 
+        }
+        .insight-box { 
+            background-color: #f0f0ff; 
+            padding: 15px; 
+            border-radius: 10px; 
+            border-left: 5px solid #6c5ce7; 
+            margin-bottom: 20px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .roadmap-card h2 {
+            color: #e94e77; 
+            border-bottom: 2px dashed #e94e7750;
+            padding-bottom: 5px;
+        }
+        ul { padding-left: 20px; }
+        li { margin-bottom: 10px; }
+    """
+
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Mārga Roadmap: {topic}</title>
+        <style>{custom_css}</style>
+    </head>
+    <body>
+        <h1>🗺️ Personalized Mārga (Roadmap)</h1>
+        <p style="font-size: 1.1em; font-weight: 500;">
+            <b>Topic:</b> {topic} | <b>Level:</b> {level} | <b>Goal Duration:</b> <span style="color: #FF4B4B;">{duration_amount} {duration_type}</span>
+        </p>
+        <hr>
+        
+        <div class="insight-box">
+            <h4 style="margin-top: 0; color: #6c5ce7;">💡 Mārga's Insight for You</h4>
+            <p>{insight_text}</p>
+        </div>
+        
+        <h3>📝 The Full Study Plan (Confidence: 95%+ Accuracy)</h3>
+        <div class="roadmap-card">
+            {html_content}
+        </div>
+        
+        <br><br>
+        <p><small>Generated by Mecrobet Mārga on {time.strftime('%Y-%m-%d %H:%M:%S')}</small></p>
+    </body>
+    </html>
+    """
+    return html_template
 
 # --- Core LLM Generation Functions (Roadmap) ---
 
@@ -74,7 +242,7 @@ def call_gemini_api_for_roadmap(topic, level, duration_amount, duration_type, fi
     # 2. Define the User Query
     user_query = (
         f"Generate a personalized {level} study roadmap for the topic: '{topic}'. "
-        f"LThe plan must span the entire period of {duration_amount} {duration_type}. "
+        f"The plan must span the entire period of {duration_amount} {duration_type}. "
         "Structure the output clearly by day or week. If images are provided, tailor the roadmap to focus on the key concepts visible in the notes."
     )
     
@@ -86,6 +254,109 @@ def call_gemini_api_for_roadmap(topic, level, duration_amount, duration_type, fi
     }
     
     return call_gemini_api_with_retry(payload)
+
+def handle_completion(index):
+    """Callback function to handle marking a step as complete."""
+    # Check if the step before it is complete (or if it's the first step)
+    if index == 0 or st.session_state.progress[index - 1]:
+        st.session_state.progress[index] = True
+        st.experimental_rerun()
+    else:
+        # Should not happen via button click but as a safeguard
+        st.error("Please complete the previous step first!")
+
+def display_interactive_roadmap(topic, level, duration_amount, duration_type, uploaded_files):
+    
+    # Inject advanced interactive CSS
+    st.markdown(CUSTOM_CSS_INTERACTIVE, unsafe_allow_html=True)
+    
+    # Ensure progress state is initialized or reset if the roadmap structure changes
+    if 'progress' not in st.session_state or len(st.session_state.progress) != len(st.session_state.structured_roadmap):
+        st.session_state.progress = [False] * len(st.session_state.structured_roadmap)
+
+    
+    # Display steps
+    for i, step in enumerate(st.session_state.structured_roadmap):
+        
+        # Logic for Locking/Unlocking
+        is_completed = st.session_state.progress[i]
+        is_unlocked = i == 0 or st.session_state.progress[i-1]
+        
+        
+        if not is_unlocked and not is_completed:
+            # LOCKED STATE
+            st.markdown(f"""
+                <div class="roadmap-step locked-step">
+                    <div class="step-header">
+                        <div style="display: flex; align-items: center;">
+                            <span class="lock-icon">🔒</span>
+                            <h3 style="margin: 0; color: #9ca3af; font-weight: 600;">{step['title']} (Locked)</h3>
+                        </div>
+                        <span class="text-sm text-gray-500">Complete the previous step to unlock.</span>
+                    </div>
+                    <div class="step-content">
+                        <p class="text-gray-400">Content hidden until previous stage is mastered. Keep going!</p>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+        else:
+            # UNLOCKED OR COMPLETED STATE
+            card_class = "unlocked-step"
+            
+            with st.container():
+                
+                # --- Header Row ---
+                header_cols = st.columns([0.05, 0.65, 0.3])
+                
+                # Icon in header
+                if is_completed:
+                    header_cols[0].markdown('<span class="unlock-icon" style="color:#10b981;">✅</span>', unsafe_allow_html=True)
+                else:
+                    header_cols[0].markdown('<span class="unlock-icon" style="color:#4f46e5;">💡</span>', unsafe_allow_html=True)
+
+                # Title in header
+                header_cols[1].markdown(f"**<h3 style='margin: 0; color: #4f46e5;'>{step['title']}</h3>**", unsafe_allow_html=True)
+
+                # Status/Button in header
+                with header_cols[2]:
+                    if is_completed:
+                        st.success("Completed!")
+                    else:
+                        st.button(
+                            f"Mark Complete & Unlock Next", 
+                            key=f"complete_btn_{i}", 
+                            on_click=handle_completion, 
+                            args=(i,),
+                            type="primary",
+                            use_container_width=True
+                        )
+                        
+                # --- Content Area ---
+                st.markdown(f'<div class="{card_class} step-content">', unsafe_allow_html=True)
+                st.markdown(step['content_markdown'])
+                st.markdown('</div>', unsafe_allow_html=True)
+                
+    # --- Download Button (outside the loop) ---
+    roadmap_filename = f"Marga_Roadmap_{topic.replace(' ', '_')}_{duration_amount}{duration_type}.html"
+    download_content = generate_styled_html_download(
+        topic, 
+        level, 
+        duration_amount, 
+        duration_type, 
+        st.session_state.current_roadmap_text,
+        st.session_state.current_insight
+    )
+    
+    st.download_button(
+        label="⬇️ Download Full Roadmap (Styled HTML - Print to PDF)",
+        data=download_content.encode('utf-8'),
+        file_name=roadmap_filename,
+        mime="text/html",
+        key="download_roadmap_main" 
+    )
+    st.caption("Tip: Open the downloaded HTML file in your browser, then use 'Print' > 'Save as PDF' for a professional document.")
+
 
 def generate_roadmap_content(topic, level, duration_amount, duration_type, uploaded_files):
     
@@ -131,6 +402,7 @@ def generate_roadmap_content(topic, level, duration_amount, duration_type, uploa
         )
         # Store the raw markdown for download
         st.session_state.current_roadmap_text = roadmap_markdown
+        st.session_state.structured_roadmap = parse_markdown_roadmap(roadmap_markdown) # <-- NEW LINE: Parse and store structure
 
     # Conversational Insight
     insights = [
@@ -140,37 +412,10 @@ def generate_roadmap_content(topic, level, duration_amount, duration_type, uploa
         "Don't worry about perfection, just focus on making a little progress every day.",
     ]
     insight_text = random.choice(insights)
+    st.session_state.current_insight = insight_text # Store insight for HTML download
     
     # Assemble the content display with advanced styling
     st.markdown(f"""
-        <style>
-            .stMarkdown h2 {{ color: #4f46e5; border-bottom: 3px solid #4f46e5; padding-bottom: 8px; margin-top: 20px; }}
-            .stMarkdown h3 {{ color: #10b981; }}
-            /* Advanced Card Styling for the Roadmap */
-            .roadmap-card {{ 
-                background: linear-gradient(145deg, #f9f9f9, #ffffff);
-                border: 1px solid #e0e0e0; 
-                border-radius: 16px; 
-                padding: 30px; 
-                box-shadow: 0 10px 20px rgba(0,0,0,0.1); 
-                margin-top: 15px; 
-            }}
-            .insight-box {{ 
-                background-color: #f0f0ff; 
-                padding: 15px; 
-                border-radius: 10px; 
-                border-left: 5px solid #6c5ce7; 
-                margin-bottom: 20px; 
-                box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            }}
-            /* Style for the day/week steps inside the roadmap */
-            .roadmap-card h2 {{
-                color: #e94e77; /* A contrasting color for steps */
-                border-bottom: 2px dashed #e94e7750;
-                padding-bottom: 5px;
-            }}
-        </style>
-        
         <h2>🗺️ Your Personalized Mārga (Roadmap)</h2>
         
         <p style="font-size: 1.1em; font-weight: 500;">
@@ -181,30 +426,14 @@ def generate_roadmap_content(topic, level, duration_amount, duration_type, uploa
         
         {visual_context_html}
         
-        <div class="insight-box">
+        <div class="insight-box" style="background-color: #f0f0ff; padding: 15px; border-radius: 10px; border-left: 5px solid #6c5ce7; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
             <h4 style="margin-top: 0; color: #6c5ce7;">💡 Mārga's Insight for You</h4>
             <p>{insight_text}</p>
         </div>
         
-        <h3>📝 The Full Study Plan (Confidence: 95%+ Accuracy)</h3>
-        <div class="roadmap-card">
+        <h3>📝 The Full Study Plan (Interactive View)</h3>
         """, unsafe_allow_html=True)
 
-    # Display the LLM-generated content
-    st.markdown(roadmap_markdown)
-    
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-    # --- Download Button for Roadmap ---
-    roadmap_filename = f"Marga_Roadmap_{topic.replace(' ', '_')}_{duration_amount}{duration_type}.md"
-    download_content = f"# Mecrobet Mārga Roadmap: {topic}\n\n**Level:** {level} | **Duration:** {duration_amount} {duration_type}\n\n---\n\n{roadmap_markdown}"
-    st.download_button(
-        label="⬇️ Download Roadmap (Markdown File)",
-        data=download_content.encode('utf-8'),
-        file_name=roadmap_filename,
-        mime="text/markdown",
-        key="download_roadmap_main" # UNIQUE KEY
-    )
 
     st.markdown(f"""
         <hr>
@@ -300,8 +529,14 @@ def roadmap_generator_page():
     if st.button("Generate My Mārga (Roadmap)", type="primary", use_container_width=True, key="generate_roadmap_button"): # UNIQUE KEY
         if topic:
             generate_roadmap_content(topic, level, duration_amount, duration_type, uploaded_files)
+            # Rerun to show the new interactive roadmap
+            st.experimental_rerun()
         else:
             st.error("Hold up! Please enter a subject to start your path!")
+
+    # Display interactive roadmap if it has been generated
+    if 'structured_roadmap' in st.session_state and st.session_state.structured_roadmap:
+        display_interactive_roadmap(topic, level, duration_amount, duration_type, uploaded_files)
 
 
 def assignment_hub_page():
@@ -393,8 +628,17 @@ def assignment_hub_page():
 
 # --- Main App Execution ---
 
+# Initialize necessary session state variables
 if 'topic' not in st.session_state:
     st.session_state['topic'] = 'Data Science Basics'
+
+if 'current_insight' not in st.session_state:
+    st.session_state['current_insight'] = 'No insight yet.'
+    
+if 'current_roadmap_text' not in st.session_state:
+    st.session_state['current_roadmap_text'] = ''
+
+# The interactive state variable 'structured_roadmap' will be initialized in generate_roadmap_content
 
 st.set_page_config(page_title="Mecrobet Mārga: Personalized Learning", layout="wide")
 
