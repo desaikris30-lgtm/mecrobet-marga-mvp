@@ -260,7 +260,7 @@ def handle_completion(index):
     # Check if the step before it is complete (or if it's the first step)
     if index == 0 or st.session_state.progress[index - 1]:
         st.session_state.progress[index] = True
-        st.experimental_rerun()
+        # REMOVED st.experimental_rerun()
     else:
         # Should not happen via button click but as a safeguard
         st.error("Please complete the previous step first!")
@@ -304,38 +304,24 @@ def display_interactive_roadmap(topic, level, duration_amount, duration_type, up
             # UNLOCKED OR COMPLETED STATE
             card_class = "unlocked-step"
             
-            with st.container():
-                
-                # --- Header Row ---
-                header_cols = st.columns([0.05, 0.65, 0.3])
-                
-                # Icon in header
-                if is_completed:
-                    header_cols[0].markdown('<span class="unlock-icon" style="color:#10b981;">✅</span>', unsafe_allow_html=True)
-                else:
-                    header_cols[0].markdown('<span class="unlock-icon" style="color:#4f46e5;">💡</span>', unsafe_allow_html=True)
+            # Using st.expander allows us to show/hide content without complex reruns
+            with st.expander(f"**{step['title']}** " + ("✅" if is_completed else "💡"), expanded=not is_completed):
 
-                # Title in header
-                header_cols[1].markdown(f"**<h3 style='margin: 0; color: #4f46e5;'>{step['title']}</h3>**", unsafe_allow_html=True)
-
-                # Status/Button in header
-                with header_cols[2]:
-                    if is_completed:
-                        st.success("Completed!")
-                    else:
-                        st.button(
-                            f"Mark Complete & Unlock Next", 
-                            key=f"complete_btn_{i}", 
-                            on_click=handle_completion, 
-                            args=(i,),
-                            type="primary",
-                            use_container_width=True
-                        )
-                        
-                # --- Content Area ---
-                st.markdown(f'<div class="{card_class} step-content">', unsafe_allow_html=True)
                 st.markdown(step['content_markdown'])
-                st.markdown('</div>', unsafe_allow_html=True)
+                
+                # Status/Button
+                if is_completed:
+                    st.success("Completed!")
+                else:
+                    st.button(
+                        f"Mark Complete & Unlock Next", 
+                        key=f"complete_btn_{i}", 
+                        on_click=handle_completion, 
+                        args=(i,),
+                        type="primary",
+                        use_container_width=False # Use false to prevent width issues in the expander
+                    )
+
                 
     # --- Download Button (outside the loop) ---
     roadmap_filename = f"Marga_Roadmap_{topic.replace(' ', '_')}_{duration_amount}{duration_type}.html"
@@ -361,6 +347,7 @@ def display_interactive_roadmap(topic, level, duration_amount, duration_type, up
 def generate_roadmap_content(topic, level, duration_amount, duration_type, uploaded_files):
     
     st.session_state.topic = topic # Save topic for assignment feature
+    st.session_state.has_generated = False # Set flag before generation
     
     # Prepare files for the LLM call
     file_parts = []
@@ -400,6 +387,12 @@ def generate_roadmap_content(topic, level, duration_amount, duration_type, uploa
             duration_type, 
             file_parts
         )
+        
+        # Check for API error
+        if roadmap_markdown.startswith("Error:"):
+            st.error(roadmap_markdown)
+            return
+
         # Store the raw markdown for download
         st.session_state.current_roadmap_text = roadmap_markdown
         st.session_state.structured_roadmap = parse_markdown_roadmap(roadmap_markdown) # <-- NEW LINE: Parse and store structure
@@ -413,8 +406,9 @@ def generate_roadmap_content(topic, level, duration_amount, duration_type, uploa
     ]
     insight_text = random.choice(insights)
     st.session_state.current_insight = insight_text # Store insight for HTML download
+    st.session_state.has_generated = True # Set flag after successful generation
     
-    # Assemble the content display with advanced styling
+    # Now that generation is complete, the rest of the function just sets up the visual components
     st.markdown(f"""
         <h2>🗺️ Your Personalized Mārga (Roadmap)</h2>
         
@@ -528,14 +522,13 @@ def roadmap_generator_page():
 
     if st.button("Generate My Mārga (Roadmap)", type="primary", use_container_width=True, key="generate_roadmap_button"): # UNIQUE KEY
         if topic:
+            # We call the generation function here, which sets st.session_state.has_generated = True
             generate_roadmap_content(topic, level, duration_amount, duration_type, uploaded_files)
-            # Rerun to show the new interactive roadmap
-            st.experimental_rerun()
         else:
             st.error("Hold up! Please enter a subject to start your path!")
 
-    # Display interactive roadmap if it has been generated
-    if 'structured_roadmap' in st.session_state and st.session_state.structured_roadmap:
+    # Display interactive roadmap if it has been generated successfully
+    if st.session_state.get('has_generated') and 'structured_roadmap' in st.session_state and st.session_state.structured_roadmap:
         display_interactive_roadmap(topic, level, duration_amount, duration_type, uploaded_files)
 
 
@@ -552,7 +545,7 @@ def assignment_hub_page():
     # --- Generate Assignment Section ---
     st.markdown("### 1. Generate Your Assignment")
     
-    if st.button(f"Generate Checkpoint Assignment for '{current_topic}'", type="secondary", key="generate_assignment_button"): # UNIQUE KEY
+    if st.button(f"Generate Checkpoint Assignment for '{current_topic}'", type="secondary", key="generate_assignment_button_hub"): # UNIQUE KEY
         with st.spinner("Mārga is designing your custom challenge..."):
             assignment_text = call_gemini_api_for_assignment(current_topic)
             st.session_state.last_assignment = assignment_text # Store for display
@@ -572,8 +565,10 @@ def assignment_hub_page():
         key="submission_file_uploader" # UNIQUE KEY
     )
     
-    # The submission button must have a unique key.
-    if st.button("Get My Grade & Feedback", type="primary", key="grade_feedback_button") and submission_file: 
+    # Use a flag to track if the grade button was pressed AND a file exists
+    grade_button_clicked = st.button("Get My Grade & Feedback", type="primary", key="grade_feedback_button_main")
+    
+    if grade_button_clicked and submission_file: 
         
         submitted_notes_parts = []
         try:
@@ -608,6 +603,9 @@ def assignment_hub_page():
             key="download_feedback_post_grade" # UNIQUE KEY
         )
         
+    elif grade_button_clicked and not submission_file:
+         st.warning("Please upload your solution file first before requesting feedback!")
+        
     elif 'last_feedback' in st.session_state:
         # This section is for displaying previously generated feedback
         st.markdown("### 🌟 Mārga's Personalized Feedback 🌟")
@@ -620,11 +618,9 @@ def assignment_hub_page():
             data=download_content.encode('utf-8'),
             file_name=feedback_filename,
             mime="text/markdown",
-            key="download_feedback_reloaded" # UNIQUE KEY, DIFFERENT FROM THE ONE ABOVE
+            key="download_feedback_reloaded" # UNIQUE KEY
         )
         
-    elif st.button("Get My Grade & Feedback", type="primary", key="grade_feedback_placeholder_button"): # Added a key for the placeholder button too
-         st.warning("Please upload your solution file first!")
 
 # --- Main App Execution ---
 
@@ -637,6 +633,10 @@ if 'current_insight' not in st.session_state:
     
 if 'current_roadmap_text' not in st.session_state:
     st.session_state['current_roadmap_text'] = ''
+    
+# Flag to control if the roadmap display should be active
+if 'has_generated' not in st.session_state:
+    st.session_state['has_generated'] = False
 
 # The interactive state variable 'structured_roadmap' will be initialized in generate_roadmap_content
 
