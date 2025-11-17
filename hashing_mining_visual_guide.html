@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hashing & Mining Visual Study Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fc;
+        }
+        .concept-card {
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            padding: 24px;
+            transition: transform 0.2s;
+            border: 2px solid #e2e8f0;
+        }
+        .concept-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.12);
+        }
+        .header-title {
+            background: linear-gradient(90deg, #4f46e5 0%, #10b981 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .key-property {
+            border-left: 3px solid #6366f1;
+            padding-left: 10px;
+            margin-top: 8px;
+            font-size: 0.95rem;
+        }
+        .callout-box {
+            background-color: #ecfdf5; /* green-50 */
+            border: 1px solid #10b981; /* emerald-500 */
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 16px;
+        }
+        /* Hide the print button when actually printing */
+        @media print {
+            .no-print {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body class="p-6 md:p-10">
+
+    <div class="max-w-4xl mx-auto">
+        
+        <!-- Download/Print Button -->
+        <div class="text-right mb-4 no-print">
+            <button onclick="window.print()" class="px-4 py-2 bg-indigo-500 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-600 transition duration-150 flex items-center ml-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download/Print Study Guide
+            </button>
+        </div>
+
+        <h1 class="text-4xl font-extrabold text-center mb-2 header-title">
+            BLOCKCHAIN BASICS: HASHING & MINING
+        </h1>
+        <p class="text-center text-gray-500 mb-10">Your Quick-Reference Visual Study Guide (Day 1 Focus)</p>
+
+        <!-- Section 1: Hashing -->
+        <div class="concept-card mb-8">
+            <h2 class="text-2xl font-bold text-indigo-600 mb-4 flex items-center">
+                <span class="mr-2 text-3xl">🔑</span> 1. HASHING: The Digital Fingerprint
+            </h2>
+
+            <p class="text-gray-600 mb-4">A hash is a fixed-length output (like a secure ID) generated from any size input data via a function (e.g., SHA-256).</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-gray-700">
+                <div>
+                    <h3 class="font-semibold text-lg text-gray-800">Deterministic</h3>
+                    <p class="key-property">Same input ➔ same hash. Always predictable.</p>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-lg text-gray-800">Irreversible</h3>
+                    <p class="key-property">Hash ➔ Input. You can't decode the original data.</p>
+                </div>
+                <div>
+                    <h3 class="font-semibold text-lg text-gray-800">Sensitive</h3>
+                    <p class="key-property">Tiny change in data ➔ completely new hash. Detects tampering.</p>
+                </div>
+            </div>
+
+            <div class="callout-box">
+                <p class="font-mono text-sm text-gray-800">
+                    <span class="font-bold text-red-600">INPUT:</span> `Mecrobet Mārga` <br>
+                    <span class="font-bold text-green-600">OUTPUT:</span> `8c4f9e1e...` (Fixed Length)
+                </p>
+            </div>
+        </div>
+
+        <!-- Section 2: Block & Mining -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <!-- Block Structure -->
+            <div class="concept-card">
+                <h2 class="text-2xl font-bold text-teal-600 mb-4 flex items-center">
+                    <span class="mr-2 text-3xl">📦</span> 2. THE BLOCK: The Secure Container
+                </h2>
+                <p class="text-gray-600 mb-4">A block bundles transactions together. It needs these 3 critical items to be valid:</p>
+                <ul class="space-y-3">
+                    <li class="p-3 bg-gray-50 rounded-lg border-l-4 border-teal-500">
+                        <span class="font-semibold">Transactions:</span> List of unconfirmed data/payments.
+                    </li>
+                    <li class="p-3 bg-gray-50 rounded-lg border-l-4 border-teal-500">
+                        <span class="font-semibold">Timestamp:</span> When the block was created.
+                    </li>
+                    <li class="p-3 bg-gray-50 rounded-lg border-l-4 border-teal-500">
+                        <span class="font-semibold">Previous Hash:</span> The fingerprint of the *last* block, creating the "chain."
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Mining Process -->
+            <div class="concept-card">
+                <h2 class="text-2xl font-bold text-red-600 mb-4 flex items-center">
+                    <span class="mr-2 text-3xl">⛏️</span> 3. MINING: The Proof-of-Work Race
+                </h2>
+                <p class="text-gray-600 mb-4">Miners compete to solve a complex puzzle to validate and add the new block.</p>
+
+                <ul class="space-y-3">
+                    <li class="p-3 bg-gray-50 rounded-lg border-l-4 border-red-500">
+                        <span class="font-semibold">The Puzzle:</span> Find the **Nonce** (Number used Once).
+                    </li>
+                    <li class="p-3 bg-gray-50 rounded-lg border-l-4 border-red-500">
+                        <span class="font-semibold">The Goal:</span> Hash the block data + Nonce to get a hash that meets the network's <span class="font-bold text-red-700">Difficulty Target</span> (e.g., starts with specific zeros).
+                    </li>
+                    <li class="p-3 bg-gray-50 rounded-lg border-l-4 border-red-500">
+                        <span class="font-semibold">The Reward:</span> First miner to solve it wins currency and transaction fees.
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Section 3: Intersection & Security -->
+        <div class="concept-card mt-8">
+            <h2 class="text-2xl font-bold text-indigo-600 mb-4 flex items-center">
+                <span class="mr-2 text-3xl">🛡️</span> 4. HOW IT SECURES THE CHAIN
+            </h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="p-4 bg-purple-50 rounded-lg">
+                    <h3 class="font-semibold text-lg text-purple-700">Immutability (Unchangeable)</h3>
+                    <p class="text-sm text-gray-700">If anyone changes a transaction in Block 5, the hash of Block 5 changes. Since Block 6 relies on the old Block 5 hash, the chain breaks instantly. This makes tampering computationally impossible.</p>
+                </div>
+                <div class="p-4 bg-purple-50 rounded-lg">
+                    <h3 class="font-semibold text-lg text-purple-700">Proof-of-Work (PoW)</h3>
+                    <p class="text-sm text-gray-700">The massive computational effort required to find a valid hash proves that real "work" was done. To successfully attack the chain, you would need to out-mine the entire rest of the network (a 51% attack), which is too expensive.</p>
+                </div>
+            </div>
+             <!-- Visual Hook -->
+            <div class="flex flex-col items-center justify-center mt-6 p-4">
+                <p class="text-lg font-medium text-gray-700">
+                    Think of it this way: Hashing is the secure lock on the data. Mining is finding the unique key to seal the lock and link it to the next one.
+                </p>
+                <!-- Contextually relevant image placeholder -->
+                            </div>
+        </div>
+
+        <p class="text-center text-sm text-gray-400 mt-6">Review this guide for your quick-fire revisions!</p>
+    </div>
+
+</body>
+</html>
