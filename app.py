@@ -5,10 +5,15 @@ import random
 import re
 import json
 import requests # Required for making external API calls
+import os # Import os for environment variable check
 
 # --- Global Configuration ---
-# API Key is expected to be provided by the execution environment when apiKey is ""
-API_KEY = "" 
+# API Key handling:
+# 1. First, check the execution environment variable (used for live deployment/Streamlit Secrets).
+# 2. Fallback to the hardcoded empty string (used for the Canvas environment if not provided).
+# The key name for Streamlit Secrets is typically defined by the user; we will standardize on GEMINI_API_KEY
+API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
 # Using the standard gemini-2.5-flash-preview-09-2025 model for text and vision
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent"
 
@@ -26,10 +31,14 @@ def get_base64_image(file_buffer):
 
 def call_gemini_api_with_retry(payload, max_retries=3):
     """Handles API call with exponential backoff for robustness."""
+    # Check if API key is available before attempting the call
+    if not API_KEY:
+         return "Error: API Key is missing. Please ensure GEMINI_API_KEY is set in Streamlit Secrets."
+         
     for attempt in range(max_retries):
         try:
             headers = {'Content-Type': 'application/json'}
-            # Make the API request
+            # Make the API request, using the global API_KEY
             response = requests.post(f"{GEMINI_API_URL}?key={API_KEY}", headers=headers, data=json.dumps(payload))
             response.raise_for_status() # Raises an HTTPError for bad responses (4xx or 5xx)
             
