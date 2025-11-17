@@ -27,11 +27,13 @@ def get_base64_image(file_buffer):
 def call_gemini_api_with_retry(payload, max_retries=3):
     """Handles API call with exponential backoff for robustness."""
     if not API_KEY:
+         # Simplified error for deployment context
          return "Error: API Key is missing. Please ensure GEMINI_API_KEY is set in Streamlit Secrets."
          
     for attempt in range(max_retries):
         try:
             headers = {'Content-Type': 'application/json'}
+            # Note: We append the API_KEY here
             response = requests.post(f"{GEMINI_API_URL}?key={API_KEY}", headers=headers, data=json.dumps(payload))
             response.raise_for_status() # Raises an HTTPError for bad responses (4xx or 5xx)
             
@@ -72,7 +74,7 @@ def call_gemini_api_for_roadmap(topic, level, duration_amount, duration_type, fi
     # 2. Define the User Query
     user_query = (
         f"Generate a personalized {level} study roadmap for the topic: '{topic}'. "
-        f"The plan must span the entire period of {duration_amount} {duration_type}. "
+        f"LThe plan must span the entire period of {duration_amount} {duration_type}. "
         "Structure the output clearly by day or week. If images are provided, tailor the roadmap to focus on the key concepts visible in the notes."
     )
     
@@ -201,7 +203,7 @@ def generate_roadmap_content(topic, level, duration_amount, duration_type, uploa
         data=download_content.encode('utf-8'),
         file_name=roadmap_filename,
         mime="text/markdown",
-        key="download_roadmap"
+        key="download_roadmap_main" # UNIQUE KEY
     )
 
     st.markdown(f"""
@@ -270,15 +272,17 @@ def roadmap_generator_page():
 
     with col1:
         topic = st.text_input("📚 1. What subject or concept are you mastering?", 
-                              st.session_state.get('topic', 'Data Science Basics')) 
+                              st.session_state.get('topic', 'Data Science Basics'),
+                              key="roadmap_topic_input") # UNIQUE KEY
         level = st.select_slider("🎯 3. Your Current Level:", 
                                  options=['Beginner', 'Intermediate', 'Advanced'], 
-                                 value='Intermediate')
+                                 value='Intermediate',
+                                 key="roadmap_level_slider") # UNIQUE KEY
         
     with col2:
         st.markdown("⏳ **2. Goal Duration**")
-        duration_amount = st.number_input("Amount", min_value=1, value=5, key="duration_amount")
-        duration_type = st.selectbox("Type", ["Days", "Weeks", "Months"], key="duration_type")
+        duration_amount = st.number_input("Amount", min_value=1, value=5, key="duration_amount_input") # UNIQUE KEY
+        duration_type = st.selectbox("Type", ["Days", "Weeks", "Months"], key="duration_type_select") # UNIQUE KEY
         
         if duration_amount == 1 and duration_type in ["Days", "Weeks", "Months"]:
              st.warning("For a multi-day plan, consider 3+ Days or 1+ Week.")
@@ -287,12 +291,13 @@ def roadmap_generator_page():
     uploaded_files = st.file_uploader(
         "Upload your current notes or images for contextual learning (Optional):", 
         type=['png', 'jpg', 'jpeg'], 
-        accept_multiple_files=True
+        accept_multiple_files=True,
+        key="roadmap_uploader" # UNIQUE KEY
     )
     st.caption("Mārga uses these visuals to tailor the plan specifically to your existing knowledge.")
     st.markdown("---")
 
-    if st.button("Generate My Mārga (Roadmap)", type="primary", use_container_width=True):
+    if st.button("Generate My Mārga (Roadmap)", type="primary", use_container_width=True, key="generate_roadmap_button"): # UNIQUE KEY
         if topic:
             generate_roadmap_content(topic, level, duration_amount, duration_type, uploaded_files)
         else:
@@ -312,7 +317,7 @@ def assignment_hub_page():
     # --- Generate Assignment Section ---
     st.markdown("### 1. Generate Your Assignment")
     
-    if st.button(f"Generate Checkpoint Assignment for '{current_topic}'", type="secondary"):
+    if st.button(f"Generate Checkpoint Assignment for '{current_topic}'", type="secondary", key="generate_assignment_button"): # UNIQUE KEY
         with st.spinner("Mārga is designing your custom challenge..."):
             assignment_text = call_gemini_api_for_assignment(current_topic)
             st.session_state.last_assignment = assignment_text # Store for display
@@ -329,10 +334,11 @@ def assignment_hub_page():
         "Upload your handwritten or typed assignment solution (as a PNG/JPG image):", 
         type=['png', 'jpg', 'jpeg'], 
         accept_multiple_files=False,
-        key="submission_file"
+        key="submission_file_uploader" # UNIQUE KEY
     )
     
-    if st.button("Get My Grade & Feedback", type="primary") and submission_file:
+    # The submission button must have a unique key.
+    if st.button("Get My Grade & Feedback", type="primary", key="grade_feedback_button") and submission_file: 
         
         submitted_notes_parts = []
         try:
@@ -356,32 +362,33 @@ def assignment_hub_page():
         st.markdown(feedback_markdown)
         st.success("Great work! Use the 'Areas for Improvement' to refine your study plan.")
         
-        # --- Download Button for Feedback ---
-        feedback_filename = f"Marga_Feedback_{current_topic.replace(' ', '_')}.md"
+        # --- Download Button for Feedback (After successful grading) ---
+        feedback_filename = f"Marga_Feedback_{current_topic.replace(' ', '_')}_GRADE.md"
         download_content = f"# Mecrobet Mārga Assignment Feedback: {current_topic}\n\n---\n\n{feedback_markdown}"
         st.download_button(
             label="⬇️ Download Feedback (Markdown File)",
             data=download_content.encode('utf-8'),
             file_name=feedback_filename,
             mime="text/markdown",
-            key="download_feedback"
+            key="download_feedback_post_grade" # UNIQUE KEY
         )
         
     elif 'last_feedback' in st.session_state:
+        # This section is for displaying previously generated feedback
         st.markdown("### 🌟 Mārga's Personalized Feedback 🌟")
         st.markdown(st.session_state.last_feedback)
          # --- Download Button for Feedback (Re-display) ---
-        feedback_filename = f"Marga_Feedback_{current_topic.replace(' ', '_')}.md"
+        feedback_filename = f"Marga_Feedback_{current_topic.replace(' ', '_')}_RELOAD.md"
         download_content = f"# Mecrobet Mārga Assignment Feedback: {current_topic}\n\n---\n\n{st.session_state.last_feedback}"
         st.download_button(
             label="⬇️ Download Feedback (Markdown File)",
             data=download_content.encode('utf-8'),
             file_name=feedback_filename,
             mime="text/markdown",
-            key="download_feedback_re"
+            key="download_feedback_reloaded" # UNIQUE KEY, DIFFERENT FROM THE ONE ABOVE
         )
         
-    elif st.button("Get My Grade & Feedback", type="primary"):
+    elif st.button("Get My Grade & Feedback", type="primary", key="grade_feedback_placeholder_button"): # Added a key for the placeholder button too
          st.warning("Please upload your solution file first!")
 
 # --- Main App Execution ---
